@@ -1,0 +1,49 @@
+name: Ping
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Label"
+        required: true
+        type: string
+      url:
+        description: "URL"
+        required: true
+        type: string
+      method:
+        description: "HTTP method"
+        required: false
+        default: GET
+        type: choice
+        options: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+      flags:
+        description: "Additional curl flags (e.g., -H 'Accept: application/json' --data-raw '{\"a\":1}')"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  test:
+    name: Ping ${{ github.event.inputs.name || 'service' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Curl check
+        env:
+          NAME: ${{ github.event.inputs.name }}
+          URL: ${{ github.event.inputs.url }}
+          METHOD: ${{ github.event.inputs.method }}
+          FLAGS: ${{ github.event.inputs.flags }}
+        run: |
+          set -euo pipefail
+          : "${NAME:=service}"
+          : "${METHOD:=GET}"
+          : "${FLAGS:=}"
+
+          CMD="curl -s -o /dev/null -w \"${NAME}: %{http_code}\n\" -X \"${METHOD}\" ${FLAGS} \"${URL}\""
+
+          echo "Running: ${CMD/--data-raw*/--data-raw *****}"
+          bash -lc "$CMD"
