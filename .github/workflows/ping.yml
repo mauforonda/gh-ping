@@ -30,7 +30,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Curl check
         env:
           NAME: ${{ github.event.inputs.name }}
@@ -43,12 +42,12 @@ jobs:
           : "${METHOD:=GET}"
           : "${FLAGS:=}"
 
-          CMD="curl -sS -X \"${METHOD}\" ${FLAGS} \"${URL}\""
+          # -g disables curl's URL globbing so query keys like foo[0] work
+          CMD="curl -g -sS -X \"${METHOD}\" ${FLAGS} \"${URL}\""
 
-          # Mask --data-raw in the echoed command to avoid leaking payloads
+          # Mask --data-raw payloads in the echoed command
           echo "Running: ${CMD/--data-raw*/--data-raw *****}"
 
-          # Capture body and status code
           BODY_FILE="$(mktemp)"
           HTTP_CODE=$(bash -lc "$CMD -o \"${BODY_FILE}\" -w \"%{http_code}\"")
 
