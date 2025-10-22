@@ -43,7 +43,17 @@ jobs:
           : "${METHOD:=GET}"
           : "${FLAGS:=}"
 
-          CMD="curl -s -o /dev/null -w \"${NAME}: %{http_code}\n\" -X \"${METHOD}\" ${FLAGS} \"${URL}\""
+          CMD="curl -sS -X \"${METHOD}\" ${FLAGS} \"${URL}\""
 
+          # Mask --data-raw in the echoed command to avoid leaking payloads
           echo "Running: ${CMD/--data-raw*/--data-raw *****}"
-          bash -lc "$CMD"
+
+          # Capture body and status code
+          BODY_FILE="$(mktemp)"
+          HTTP_CODE=$(bash -lc "$CMD -o \"${BODY_FILE}\" -w \"%{http_code}\"")
+
+          echo "----- Response body start -----"
+          cat "${BODY_FILE}"
+          echo
+          echo "----- Response body end -----"
+          echo "${NAME}: ${HTTP_CODE}"
