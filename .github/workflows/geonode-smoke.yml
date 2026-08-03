@@ -26,7 +26,7 @@ jobs:
           probe() {
             local name="$1" url="$2" timeout="$3" file="$4"
             local metrics rc
-            metrics=$(curl -kLsS --compressed --max-time "$timeout" -o "$file" -w "%{http_code}\\t%{size_download}\\t%{time_total}" "$url" 2>"$file.err")
+            set +e\n            metrics=$(curl -kLsS --compressed --max-time "$timeout" -o "$file" -w "%{http_code}\\t%{size_download}\\t%{time_total}" "$url" 2>"$file.err")
             rc=$?
             printf "%s\\t%s\\t%s\\n" "$name" "$rc" "$metrics" | tee -a "$OUT/results.tsv"
             if [[ -s "$file.err" ]]; then sed 's/^/curl: /' "$file.err"; fi
