@@ -1,0 +1,84 @@
+name: Temporary GeoNode smoke test
+
+on:
+  push:
+    paths:
+      - ".github/workflows/geonode-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Test GeoNode and GeoServer from GitHub
+        shell: bash
+        run: |
+          set -u
+          BASE="https://geonode.planificacion.gob.bo"
+          LAYER="geonode:limites_municipales_2015"
+          OUT="$RUNNER_TEMP/geonode"
+          mkdir -p "$OUT"
+          : > "$OUT/results.tsv"
+
+          probe() {
+            local name="$1" url="$2" timeout="$3" file="$4"
+            local metrics rc
+            metrics=$(curl -kLsS --compressed --max-time "$timeout" -o "$file" -w "%{http_code}\\t%{size_download}\\t%{time_total}" "$url" 2>"$file.err")
+            rc=$?
+            printf "%s\\t%s\\t%s\\n" "$name" "$rc" "$metrics" | tee -a "$OUT/results.tsv"
+            if [[ -s "$file.err" ]]; then sed 's/^/curl: /' "$file.err"; fi
+          }
+
+          probe "wfs_capabilities_1_0" "$BASE/geoserver/ows?service=WFS&version=1.0.0&request=GetCapabilities" 60 "$OUT/wfs-capabilities.xml"
+
+          python - "$OUT/wfs-capabilities.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          p=sys.argv[1]
+          try:
+              root=ET.parse(p).getroot()
+              layers=[e for e in root.iter() if e.tag.rsplit("}",1)[-1]=="FeatureType"]
+              print(f"WFS_FEATURE_TYPES={len(layers)} ROOT={root.tag}")
+          except Exception as e:
+              print(f"WFS_PARSE_ERROR={e}")
+          PY
+
+          probe "wms_capabilities_1_3" "$BASE/geoserver/ows?service=WMS&version=1.3.0&request=GetCapabilities" 60 "$OUT/wms-capabilities.xml"
+          probe "wfs_hits" "$BASE/geoserver/ows?service=WFS&version=1.1.0&request=GetFeature&typeName=$LAYER&resultType=hits" 30 "$OUT/wfs-hits.xml"
+          probe "wfs_geojson_one" "$BASE/geoserver/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=$LAYER&maxFeatures=1&outputFormat=application/json" 30 "$OUT/wfs-one.json"
+          probe "wms_getmap" "$BASE/geoserver/ows?service=WMS&version=1.1.1&request=GetMap&layers=$LAYER&styles=&bbox=-70,-23,-57,-9&width=64&height=64&srs=EPSG:4326&format=image/png" 30 "$OUT/wms-map.bin"
+          probe "geonode_api" "$BASE/api/v2/resources/published/?page_size=1" 30 "$OUT/api.json"
+
+          python - "$OUT/api.json" <<'PY'
+          import json,sys
+          try:
+              d=json.load(open(sys.argv[1]))
+              r=d["resources"][0]
+              print(f"API_TOTAL={d.get('total')} FIRST_PK={r.get('pk')} FIRST_ALTERNATE={r.get('alternate')}")
+              print(f"DOWNLOAD_URL={r.get('download_urls',[{}])[0].get('url')}")
+          except Exception as e:
+              print(f"API_PARSE_ERROR={e}")
+          PY
+
+          probe "asset_download_pk48" "$BASE/api/v2/assets/48/download" 60 "$OUT/asset48.zip"
+          file "$OUT/asset48.zip" || true
+          unzip -t "$OUT/asset48.zip" || true
+
+          echo "----- WFS hits response -----"
+          head -c 1600 "$OUT/wfs-hits.xml"; echo
+          echo "----- WFS GeoJSON response -----"
+          head -c 1600 "$OUT/wfs-one.json"; echo
+          echo "----- WMS GetMap response -----"
+          head -c 1600 "$OUT/wms-map.bin"; echo
+
+          {
+            echo "## GeoNode smoke-test"
+            echo
+            echo "~~~tsv"
+            echo -e "probe\\tcurl_rc\\thttp\\tbytes\\tseconds"
+            cat "$OUT/results.tsv"
+            echo "~~~"
+          } >> "$GITHUB_STEP_SUMMARY"
