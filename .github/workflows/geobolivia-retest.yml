@@ -29,7 +29,7 @@ jobs:
           }
 
           probe wfs_caps "$ROOT?service=WFS&version=1.0.0&request=GetCapabilities" 90 "$OUT/wfsc.xml"
-          probe wms_caps "$ROOT?service=WMS&version=1.3.0&request=GetCapabilities" 90 "$OUT/wmsc.xml"
+          probe wms_caps "$ROOT?service=WMS&version=1.3.0&request=GetCapabilities" 90 "$OUT/wmsc.xml"\n          probe wms_caps_workspace "$WS?service=WMS&version=1.3.0&request=GetCapabilities" 90 "$OUT/wmsc-ws.xml"
           probe hits "$ROOT?service=WFS&version=1.1.0&request=GetFeature&typeName=$LAYER&resultType=hits" 45 "$OUT/hits.xml"
           probe sample5 "$ROOT?service=WFS&version=1.0.0&request=GetFeature&typeName=$LAYER&outputFormat=application%2Fjson&maxFeatures=5" 45 "$OUT/s5.json"
           probe sample1_ws "$WS?service=WFS&version=1.0.0&request=GetFeature&typeName=$LAYER&outputFormat=application%2Fjson&maxFeatures=1" 45 "$OUT/s1.json"
