@@ -1,0 +1,57 @@
+name: Temporary GeoBolivia retest
+on:
+  push:
+    paths: [".github/workflows/geobolivia-retest.yml"]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe geodatos calls
+        shell: bash
+        run: |
+          set -u
+          ROOT="https://geonode.planificacion.gob.bo/geoserver/ows"
+          WS="https://geonode.planificacion.gob.bo/geoserver/geonode/ows"
+          LAYER="geonode:achiote_fe01ca19"
+          OUT="$RUNNER_TEMP/geo"; mkdir -p "$OUT"
+
+          probe() {
+            local n="$1" u="$2" t="$3" f="$4" m="" rc=0
+            set +e
+            m=$(curl -kLsS --compressed --max-time "$t" -o "$f" -w "%{http_code}|%{content_type}|%{size_download}|%{time_total}" "$u" 2>"$f.err")
+            rc=$?
+            set -e
+            echo "RESULT|$n|$rc|$m"
+            test ! -s "$f.err" || sed 's/^/CURL_ERROR|/' "$f.err"
+          }
+
+          probe wfs_caps "$ROOT?service=WFS&version=1.0.0&request=GetCapabilities" 90 "$OUT/wfsc.xml"
+          probe wms_caps "$ROOT?service=WMS&version=1.3.0&request=GetCapabilities" 90 "$OUT/wmsc.xml"
+          probe hits "$ROOT?service=WFS&version=1.1.0&request=GetFeature&typeName=$LAYER&resultType=hits" 45 "$OUT/hits.xml"
+          probe sample5 "$ROOT?service=WFS&version=1.0.0&request=GetFeature&typeName=$LAYER&outputFormat=application%2Fjson&maxFeatures=5" 45 "$OUT/s5.json"
+          probe sample1_ws "$WS?service=WFS&version=1.0.0&request=GetFeature&typeName=$LAYER&outputFormat=application%2Fjson&maxFeatures=1" 45 "$OUT/s1.json"
+          probe full "$ROOT?service=WFS&version=1.0.0&request=GetFeature&typeName=$LAYER&outputFormat=application%2Fjson" 120 "$OUT/full.json"
+          probe page2 "$ROOT?service=WFS&version=1.0.0&request=GetFeature&typeName=$LAYER&outputFormat=application%2Fjson&maxFeatures=1&count=1&startIndex=1" 45 "$OUT/page.json"
+          probe map "$ROOT?service=WMS&version=1.1.0&request=GetMap&layers=$LAYER&styles=&format=image%2Fpng&transparent=false&srs=EPSG%3A4326&width=256&height=256&bbox=-70,-23,-57,-9" 60 "$OUT/map.bin"
+          probe legend "$ROOT?service=WMS&version=1.1.0&request=GetLegendGraphic&format=image%2Fpng&layer=$LAYER" 45 "$OUT/legend.bin"
+
+          python - "$OUT" <<'PY'
+          import json,os,sys,xml.etree.ElementTree as E
+          o=sys.argv[1]; loc=lambda t:t.rsplit("}",1)[-1]
+          for fn in ("wfsc.xml","wmsc.xml","hits.xml"):
+            try:
+              r=E.parse(os.path.join(o,fn)).getroot()
+              ex=[(x.text or "")[:160] for x in r.iter() if loc(x.tag) in ("ExceptionText","ServiceException")]
+              n=sum(loc(x.tag) in ("FeatureType","Layer") for x in r.iter())
+              print("CHECK|",fn,"|root=",loc(r.tag),"|items=",n,"|exception=",ex[:1])
+            except Exception as e: print("CHECK|",fn,"|xml_error=",e)
+          for fn in ("s5.json","s1.json","full.json","page.json"):
+            try:
+              d=json.load(open(os.path.join(o,fn))); print("CHECK|",fn,"|type=",d.get("type"),"|features=",len(d.get("features",[])),"|total=",d.get("totalFeatures"))
+            except Exception as e: print("CHECK|",fn,"|json_error=",e)
+          for fn in ("map.bin","legend.bin"):
+            b=open(os.path.join(o,fn),"rb").read(); print("CHECK|",fn,"|bytes=",len(b),"|png=",b.startswith(b"\x89PNG"),"|exception=",b"Exception" in b[:2000])
+          PY
