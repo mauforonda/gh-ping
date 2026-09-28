@@ -52,6 +52,7 @@ jobs:
           import traceback
 
           import requests
+          import urllib3
 
           url = os.environ["URL"]
           name = os.environ.get("NAME", "service")
@@ -93,6 +94,7 @@ jobs:
           print(f"url={url}")
           print(f"python={platform.python_version()}")
           print(f"requests={requests.__version__}")
+          print(f"urllib3={urllib3.__version__}")
           print(f"openssl={ssl.OPENSSL_VERSION}")
           print(f"addresses={[item[4][0] for item in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)]}")
 
