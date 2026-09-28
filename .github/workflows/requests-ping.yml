@@ -1,0 +1,121 @@
+name: Python requests ping
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Label"
+        required: true
+        type: string
+      url:
+        description: "URL"
+        required: true
+        type: string
+      headers:
+        description: "Custom headers as JSON object"
+        required: false
+        default: "{}"
+        type: string
+      connect_timeout:
+        description: "Connection timeout in seconds"
+        required: false
+        default: "10"
+        type: string
+      read_timeout:
+        description: "Read timeout in seconds"
+        required: false
+        default: "30"
+        type: string
+
+jobs:
+  test:
+    name: Requests ${{ github.event.inputs.name || 'service' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Python requests check
+        env:
+          NAME: ${{ github.event.inputs.name }}
+          URL: ${{ github.event.inputs.url }}
+          CUSTOM_HEADERS: ${{ github.event.inputs.headers }}
+          CONNECT_TIMEOUT: ${{ github.event.inputs.connect_timeout }}
+          READ_TIMEOUT: ${{ github.event.inputs.read_timeout }}
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check requests
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          import socket
+          import ssl
+          import sys
+          import traceback
+
+          import requests
+
+          url = os.environ["URL"]
+          name = os.environ.get("NAME", "service")
+          timeout = (
+              float(os.environ.get("CONNECT_TIMEOUT", "10")),
+              float(os.environ.get("READ_TIMEOUT", "30")),
+          )
+
+          browser_headers = {
+              "User-Agent": (
+                  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+              ),
+              "Accept": (
+                  "text/html,application/xhtml+xml,application/xml;"
+                  "q=0.9,*/*;q=0.8"
+              ),
+              "Accept-Language": "es-BO,es;q=0.9,en;q=0.8",
+              "Accept-Encoding": "gzip, deflate",
+              "Cache-Control": "no-cache",
+          }
+
+          try:
+              custom_headers = json.loads(os.environ.get("CUSTOM_HEADERS") or "{}")
+              if not isinstance(custom_headers, dict):
+                  raise ValueError("headers must be a JSON object")
+          except Exception as error:
+              print(f"Invalid custom headers: {error}", file=sys.stderr)
+              sys.exit(2)
+
+          profiles = [
+              ("default", {}),
+              ("browser", browser_headers),
+              ("custom", {str(k): str(v) for k, v in custom_headers.items()}),
+          ]
+
+          hostname = url.split("/", 3)[2]
+          print(f"name={name}")
+          print(f"url={url}")
+          print(f"python={platform.python_version()}")
+          print(f"requests={requests.__version__}")
+          print(f"openssl={ssl.OPENSSL_VERSION}")
+          print(f"addresses={[item[4][0] for item in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)]}")
+
+          failures = 0
+          for profile, headers in profiles:
+              print(f"--- profile={profile} headers={headers}")
+              try:
+                  response = requests.get(
+                      url,
+                      headers=headers,
+                      timeout=timeout,
+                      allow_redirects=True,
+                  )
+                  print(f"status={response.status_code}")
+                  print(f"final_url={response.url}")
+                  print(f"server={response.headers.get('server')}")
+                  print(f"content_type={response.headers.get('content-type')}")
+                  print(f"body_prefix={response.text[:500]!r}")
+                  response.raise_for_status()
+              except Exception as error:
+                  failures += 1
+                  print(f"error={type(error).__name__}: {error}")
+                  traceback.print_exc()
+
+          sys.exit(1 if failures else 0)
+          PY
