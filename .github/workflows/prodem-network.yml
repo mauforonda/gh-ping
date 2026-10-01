@@ -1,0 +1,49 @@
+name: Prodem network diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install requests==2.31.0 urllib3==2.0.7 beautifulsoup4
+      - name: Check Prodem connectivity and rates
+        run: |
+          python -u - <<'PYTHON'
+          import platform
+          import socket
+          import ssl
+          import requests
+          from bs4 import BeautifulSoup
+
+          host = "www.prodem.bo"
+          print("Python:", platform.python_version(), "TLS:", ssl.OPENSSL_VERSION)
+          print("DNS:", sorted({a[4][0] for a in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)}))
+          for attempt in range(2):
+              print("Attempt:", attempt + 1)
+              try:
+                  with socket.create_connection((host, 443), timeout=10):
+                      print("TCP connected")
+                  response = requests.get("https://www.prodem.bo/Inicio", timeout=(10, 30))
+                  response.raise_for_status()
+                  soup = BeautifulSoup(response.text, "html.parser")
+                  for selector in ("#prodem-compra", "#prodem-venta"):
+                      node = soup.select_one(selector)
+                      if node is None or not node.get_text(strip=True):
+                          raise ValueError("Missing rate: " + selector)
+                      print(selector, node.get_text(strip=True))
+                  print("HTTP:", response.status_code)
+              except Exception as error:
+                  print(type(error).__name__, str(error))
+                  raise
+          PYTHON
